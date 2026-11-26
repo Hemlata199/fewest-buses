@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fewest Buses Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* VOICE: clear, confident transit wayfinding — a sign you trust at a bus stand.
+   IDEA: the page behaves like a bus-stand strip map plus a route board you can switch off.
+   PICTURE: a large vertical strip map of the journey, each bus a coloured bar, transfers as ringed stops.
+   COLOUR and TYPE: signal yellow band, ink black, white ground; Overpass (highway-sign lettering).
+   LAYOUT: query bar on yellow band; strip map beside route board; then proof (BFS rings), then editor. */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#121212);--ink:light-dark(#111111,#f2f2f2);--sub:light-dark(#5b5b5b,#a8a8a8);--line:light-dark(#e4e4e4,#2c2c2c);--card:light-dark(#f6f6f4,#1c1c1c);--yel:#ffcc00;--yelink:#111;--bad:#d7263d;--ok:#11875d}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Overpass,system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(24px,4vw,56px) max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+header.band{background:var(--yel);color:var(--yelink);padding-bottom:28px}
+h1{font-size:clamp(32px,5vw,50px);line-height:1.05;margin:0 0 6px;font-weight:800;text-wrap:balance}
+h2{font-size:26px;line-height:1.1;margin:0 0 12px;font-weight:800}
+.lede{margin:0 0 20px;max-width:62ch}
+.q{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto;gap:10px;align-items:end}
+.q label{font-weight:600;font-size:14px;display:block}
+select,input,textarea,button{font:inherit;font-size:16px}
+select,input{width:100%;height:48px;border:2px solid #111;border-radius:8px;padding:0 10px;background:#fff;color:#111}
+.swap{height:48px;width:48px;border:2px solid #111;border-radius:8px;background:transparent;color:#111;cursor:pointer;font-weight:800}
+.go{height:48px;padding:0 22px;border:0;border-radius:8px;background:#111;color:var(--yel);font-weight:800;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,.chip:focus-visible{outline:3px solid #2b6cff;outline-offset:2px}
+.main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:clamp(20px,3vw,40px)}
+.result{font-size:clamp(28px,4vw,44px);font-weight:800;line-height:1.05;margin:0 0 4px}
+.meta{color:var(--sub);font-size:14px;margin-bottom:18px}
+.strip{position:relative;padding-left:0}
+.leg{display:grid;grid-template-columns:44px minmax(0,1fr);gap:14px}
+.rail{position:relative;display:flex;justify-content:center}
+.rail i{position:absolute;top:0;bottom:0;width:12px;border-radius:6px}
+.dot{position:relative;z-index:1;width:28px;height:28px;border-radius:50%;background:var(--bg);border:6px solid var(--ink);margin-top:2px}
+.dot.x{width:34px;height:34px;border-width:8px;margin-top:0}
+.stop{font-weight:800;font-size:20px;line-height:1.2;padding:4px 0}
+.ride{padding:10px 0 22px;color:var(--sub);font-size:15px}
+.tag{display:inline-block;color:#fff;font-weight:800;border-radius:6px;padding:2px 10px;margin-right:6px;font-size:15px}
+.empty{background:var(--card);border-radius:12px;padding:22px;font-size:17px}
+.empty b{color:var(--bad)}
+.board{background:var(--card);border-radius:12px;padding:18px}
+.board p{margin:0 0 12px;color:var(--sub);font-size:14px}
+.chips{display:grid;gap:8px}
+.chip{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;min-height:48px;padding:8px 12px;border-radius:8px;border:2px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.chip .sw{width:16px;height:16px;border-radius:4px}
+.chip .st{display:block;font-size:13px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .nm{font-weight:800}
+.chip .state{font-size:13px;font-weight:800;white-space:nowrap}
+.chip.off{opacity:.55;border-style:dashed}.chip.off .nm{text-decoration:line-through}
+.chip.off .state{color:var(--bad)}.chip .state{color:var(--ok)}
+.chip.used{border-color:var(--ink)}
+.proof{border-top:1px solid var(--line)}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(20px,3vw,40px)}
+.ring{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.ring .n{font-weight:800;font-size:15px}
+.ring .r{font-size:15px}
+.ring .r span{display:inline-block;margin:2px 4px 2px 0}
+.ring.hit .n{color:var(--ok)}
+.cmp{background:var(--card);border-radius:12px;padding:18px}
+.cmp .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;padding:8px 0;border-bottom:1px solid var(--line);font-size:15px}
+.cmp .row b{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cmp .row.h{font-size:13px;color:var(--sub)}
+.note{font-size:15px;color:var(--sub);margin-top:12px}
+textarea{width:100%;min-height:200px;border:2px solid var(--line);border-radius:8px;padding:12px;background:var(--bg);color:var(--ink);font:14px/1.5 'Overpass Mono',monospace}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.presets button,.apply{min-height:44px;padding:0 14px;border-radius:8px;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:600;cursor:pointer}
+.apply{background:var(--ink);color:var(--bg);margin-top:10px}
+.msg{font-size:14px;margin-left:10px;color:var(--sub)}
+footer{color:var(--sub);font-size:13px}
+@media(max-width:820px){.main,.cols{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.q{grid-template-columns:minmax(0,1fr) auto}.q .f2{grid-column:1}.q .go{grid-column:1/-1}.swap{grid-row:1/3;grid-column:2;height:auto;align-self:stretch;margin-top:26px}}
+@media(prefers-reduced-motion:no-preference){.strip .leg{animation:in .35s ease both}@keyframes in{from{opacity:0;transform:translateY(6px)}}}
+</style>
+</head>
+<body>
+<header class="band"><div class="wrap">
+  <h1>Fewest buses, every time</h1>
+  <p class="lede">Pick two stops. The planner finds the journey with the fewest boardings, shows where to change, and re-plans instantly when you switch a route off.</p>
+  <form class="q" id="q">
+    <div><label for="src">From</label><select id="src"></select></div>
+    <button type="button" class="swap" id="swap" aria-label="Swap stops">⇅</button>
+    <div class="f2"><label for="dst">To</label><select id="dst"></select></div>
+    <button class="go" type="submit">Find journey</button>
+  </form>
+</div></header>
+
+<section class="band"><div class="wrap main">
+  <div>
+    <div id="out"></div>
+  </div>
+  <aside class="board">
+    <h2>Route board</h2>
+    <p>Tap a route to close or reopen it. The journey re-plans on every change.</p>
+    <div class="chips" id="chips"></div>
+  </aside>
+</div></section>
+
+<section class="band proof"><div class="wrap cols">
+  <div>
+    <h2>Why this is the minimum</h2>
+    <p class="note" style="margin-top:0">The search moves one <b>bus</b> at a time, not one stop. Ring 1 holds every route that stops at your origin; ring 2 holds every new route you can switch to from those, and so on. The first ring that touches the destination is the answer, so no journey with fewer buses can exist.</p>
+    <div id="rings"></div>
+  </div>
+  <div>
+    <h2>Fewest buses vs fewest stops</h2>
+    <div class="cmp" id="cmp"></div>
+    <p class="note">A commuter cares about how many times they board, not how many stops pass by. The shortest path by stops can force extra changes; this planner never does.</p>
+  </div>
+</div></section>
+
+<section class="band proof"><div class="wrap">
+  <h2>Network</h2>
+  <div class="presets" id="presets"></div>
+  <label for="net" class="note" style="display:block;margin:0 0 6px">One route per line: <code>Name: stop, stop, stop</code></label>
+  <textarea id="net" spellcheck="false"></textarea>
+  <button class="apply" id="apply">Load network</button><span class="msg" id="msg"></span>
+</div></section>
+
+<footer class="band"><div class="wrap">Sample networks are illustrative. Riding between any two stops on a route counts as one bus. Search cost is linear in total stop appearances (≤ 40,000).</div></footer>
+
+<script>
+{
+const PALETTE=['#e4002b','#0067c5','#00964b','#f28c00','#7b3fa0','#00a3ad','#c2185b','#5d4037','#455a64','#827717'];
+const PRESETS={
+  'Problem example':'R1: 1, 2, 7\nR2: 3, 6, 7',
+  'Demo city':'Red: Airport, Hebbal, Mekhri, Majestic, Market\nBlue: Market, Lalbagh, Jayanagar, BTM, Silkboard\nGreen: Majestic, Indiranagar, Marathahalli, Whitefield\nOrange: Hebbal, Manyata, KR Puram, Whitefield\nPurple: Silkboard, Bellandur, Marathahalli, Whitefield\nExpress: Airport, Hebbal, Silkboard',
+  'Buses vs stops trap':'Loop: Depot, A1, A2, A3, A4, A5, A6, A7, Terminal\nShuttle1: Depot, Bridge\nShuttle2: Bridge, Fort\nShuttle3: Fort, Terminal',
+  'Disconnected':'North1: N1, N2, N3\nNorth2: N3, N4\nSouth1: S1, S2, S3\nSouth2: S3, S4',
+  'Stress: 400 routes':null
+};
+const DEFAULT_Q={'Problem example':['1','6'],'Demo city':['Airport','Whitefield'],'Buses vs stops trap':['Depot','Terminal'],'Disconnected':['N1','S4'],'Stress: 400 routes':['HUB','FAR']};
+
+// ---------- engine (mirrors BusNetwork.java) ----------
+let routes=[], stopIdx=new Map(), closed=new Set();
+function build(text){
+  const rs=[];
+  for(const raw of text.split('\n')){
+    const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+    const m=line.match(/^([^:=]+)[:=]\s*(.*)$/); if(!m)throw new Error('Cannot read line: '+line);
+    const stops=[...new Set(m[2].replace(/[\[\]]/g,'').split(/\s*,\s*|\s{2,}/).map(s=>s.trim()).filter(Boolean))];
+    if(!stops.length)throw new Error('Route '+m[1].trim()+' has no stops');
+    rs.push({name:m[1].trim(),stops});
+  }
+  if(!rs.length)throw new Error('No routes found');
+  const idx=new Map();
+  rs.forEach((r,i)=>r.stops.forEach(s=>{if(!idx.has(s))idx.set(s,[]);idx.get(s).push(i)}));
+  routes=rs; stopIdx=idx; closed=new Set();
+}
+function query(src,dst){
+  if(src===dst)return{found:true,legs:[],rings:[]};
+  const n=routes.length,off=routes.map(r=>closed.has(r.name));
+  const servesDest=new Array(n).fill(false);(stopIdx.get(dst)||[]).forEach(r=>servesDest[r]=true);
+  const parent=new Array(n),board=new Array(n),level=new Array(n).fill(0),seenStop=new Set([src]);
+  const q=[],rings=[];let h=0;
+  for(const r of stopIdx.get(src)||[]){if(off[r])continue;level[r]=1;parent[r]=-1;board[r]=src;q.push(r)}
+  while(h<q.length){
+    const r=q[h++];(rings[level[r]-1]??=[]).push(r);
+    if(servesDest[r]){
+      // finish this ring for display, then reconstruct
+      while(h<q.length&&level[q[h]]===level[r]){const x=q[h++];rings[level[r]-1].push(x)}
+      const legs=[];let alight=dst;
+      for(let c=r;c!==-1;c=parent[c]){legs.unshift({route:c,board:board[c],alight});alight=board[c]}
+      return{found:true,legs,rings,hit:r};
+    }
+    for(const s of routes[r].stops){
+      if(seenStop.has(s))continue;seenStop.add(s);
+      for(const nx of stopIdx.get(s)){if(level[nx]||off[nx])continue;level[nx]=level[r]+1;parent[nx]=r;board[nx]=s;q.push(nx)}
+    }
+  }
+  let why='these stops are in parts of the network that no bus links.';
+  if(!(stopIdx.get(src)||[]).some(r=>!off[r]))why='every route serving '+src+' is closed.';
+  else if(!(stopIdx.get(dst)||[]).some(r=>!off[r]))why='every route serving '+dst+' is closed.';
+  else if(closed.size)why='no remaining route links them with '+[...closed].join(', ')+' closed.';
+  return{found:false,legs:[],rings,why};
+}
+// fewest-stops path (consecutive stops are neighbours), then the buses that path needs
+function fewestStops(src,dst){
+  if(src===dst)return{stops:0,buses:0};
+  const adj=new Map();
+  routes.forEach((r,i)=>{if(closed.has(r.name))return;for(let k=0;k+1<r.stops.length;k++){const a=r.stops[k],b=r.stops[k+1];
+    for(const[x,y]of[[a,b],[b,a]]){if(!adj.has(x))adj.set(x,[]);adj.get(x).push([y,i])}}});
+  const prev=new Map([[src,null]]),q=[src];let h=0;
+  while(h<q.length){const u=q[h++];if(u===dst)break;for(const[v]of adj.get(u)||[])if(!prev.has(v)){prev.set(v,u);q.push(v)}}
+  if(!prev.has(dst))return null;
+  const path=[];for(let c=dst;c!==null;c=prev.get(c))path.unshift(c);
+  let buses=0,cur=null;
+  for(let k=0;k+1<path.length;k++){
+    const ok=new Set((adj.get(path[k])||[]).filter(([v])=>v===path[k+1]).map(([,i])=>i));
+    const keep=cur?new Set([...cur].filter(i=>ok.has(i))):new Set();
+    if(keep.size)cur=keep;else{buses++;cur=ok}
+  }
+  return{stops:path.length-1,buses};
+}
+function stopsRidden(j){let t=0;for(const l of j.legs){const s=routes[l.route].stops;t+=Math.abs(s.indexOf(l.alight)-s.indexOf(l.board))}return t}
+
+// ---------- UI ----------
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const col=i=>PALETTE[i%PALETTE.length];
+let lastUsed=new Set();
+
+function fillStops(keep){
+  const all=[...stopIdx.keys()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const opts=all.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  for(const[id,v]of[['src',keep[0]],['dst',keep[1]]]){$(id).innerHTML=opts;if(v!=null&&stopIdx.has(v))$(id).value=v}
+}
+function renderChips(){
+  const big=routes.length>40;
+  const list=big?routes.map((r,i)=>i).filter(i=>lastUsed.has(i)||closed.has(routes[i].name)).concat(routes.map((r,i)=>i).filter(i=>!lastUsed.has(i)&&!closed.has(routes[i].name)).slice(0,12)):routes.map((r,i)=>i);
+  $('chips').innerHTML=list.map(i=>{const r=routes[i],off=closed.has(r.name);
+    return `<button class="chip${off?' off':''}${lastUsed.has(i)?' used':''}" data-r="${i}" aria-pressed="${off}"><span class="sw" style="background:${col(i)}"></span><span style="overflow:hidden"><span class="nm">${esc(r.name)}</span><span class="st">${esc(r.stops.join(' · '))}</span></span><span class="state">${off?'Closed':lastUsed.has(i)?'In use':'Open'}</span></button>`}).join('')
+    +(big?`<p style="margin:6px 0 0">Showing routes in use, closed and 12 others of ${routes.length}.</p>`:'');
+}
+function run(){
+  const src=$('src').value,dst=$('dst').value;
+  const t0=performance.now(),j=query(src,dst),ms=performance.now()-t0;
+  lastUsed=new Set(j.legs.map(l=>l.route));
+  const out=$('out');
+  if(!j.found){
+    out.innerHTML=`<p class="result">No journey</p><p class="meta">${esc(src)} → ${esc(dst)} · searched in ${ms.toFixed(2)} ms</p><div class="empty"><b>No bus connection:</b> ${esc(j.why)}</div>`;
+  }else if(!j.legs.length){
+    out.innerHTML=`<p class="result">0 buses</p><p class="meta">You are already at ${esc(src)}.</p>`;
+  }else{
+    const k=j.legs.length,changes=j.legs.slice(1).map(l=>l.board);
+    let h=`<p class="result">${k} ${k===1?'bus':'buses'}</p><p class="meta">${j.legs.map(l=>esc(routes[l.route].name)).join(' → ')} · ${changes.length?'change at '+changes.map(esc).join(', '):'no changes'} · ${stopsRidden(j)} stops ridden · ${ms.toFixed(2)} ms</p><div class="strip">`;
+    j.legs.forEach((l,i)=>{const c=col(l.route),first=i===0;
+      h+=`<div class="leg"><div class="rail"><i style="background:${c};top:16px"></i><span class="dot${first?'':' x'}"></span></div><div><div class="stop">${esc(l.board)}</div><div class="ride"><span class="tag" style="background:${c}">${esc(routes[l.route].name)}</span>${first?'Board':'Change to'} ${esc(routes[l.route].name)}, ride to ${esc(l.alight)}</div></div></div>`});
+    h+=`<div class="leg"><div class="rail"><span class="dot"></span></div><div><div class="stop">${esc(dst)}</div><div class="ride" style="padding-bottom:0">Arrive</div></div></div></div>`;
+    out.innerHTML=h;
+  }
+  // rings
+  const rings=j.rings||[];
+  $('rings').innerHTML=src===dst?'<p class="note">Origin equals destination: zero buses, nothing to search.</p>':rings.length?rings.map((ring,i)=>{
+    const show=ring.slice(0,14),more=ring.length-show.length,hit=j.found&&i===rings.length-1;
+    return `<div class="ring${hit?' hit':''}"><div class="n">Bus ${i+1}${hit?' ✓':''}</div><div class="r">${show.map(r=>`<span class="tag" style="background:${col(r)}">${esc(routes[r].name)}</span>`).join('')}${more>0?`<span>+${more} more</span>`:''}<br><span style="color:var(--sub);font-size:14px">${hit?'reaches '+esc(dst)+' — stop here':ring.length+' route'+(ring.length>1?'s':'')+', none reaches '+esc(dst)}</span></div></div>`}).join(''):'<p class="note">No open route serves the origin.</p>';
+  // comparison
+  const fs=fewestStops(src,dst);
+  $('cmp').innerHTML=`<div class="row h"><span>Strategy</span><b>Buses</b><b>Stops</b></div>
+    <div class="row"><span>This planner (fewest buses)</span><b>${j.found?j.legs.length:'—'}</b><b>${j.found?stopsRidden(j):'—'}</b></div>
+    <div class="row"><span>Shortest path by stops</span><b>${fs?fs.buses:'—'}</b><b>${fs?fs.stops:'—'}</b></div>`
+    +(fs&&j.found&&fs.buses>j.legs.length?`<p class="note" style="margin-bottom:0"><b>Here it matters:</b> the shortest-by-stops path needs ${fs.buses-j.legs.length} extra change${fs.buses-j.legs.length>1?'s':''}.</p>`:'');
+  renderChips();
+}
+function stress(){
+  let r=1;const rnd=()=>(r=(r*1103515245+12345)%2147483648)/2147483648,lines=[];
+  for(let i=0;i<400;i++){const s=['HUB'];while(s.length<100)s.push('p'+Math.floor(rnd()*300));lines.push('H'+i+': '+s.join(', '))}
+  lines.push('Far: p0, FAR');return lines.join('\n');
+}
+function loadText(text,q){
+  try{build(text);$('net').value=text;fillStops(q||[$('src').value,$('dst').value]);
+    const appear=routes.reduce((a,r)=>a+r.stops.length,0);
+    $('msg').textContent=`${routes.length} routes, ${stopIdx.size} stops, ${appear.toLocaleString()} stop appearances.`;run();
+  }catch(e){$('msg').textContent='Error: '+e.message}
+}
+$('presets').innerHTML=Object.keys(PRESETS).map(k=>`<button data-p="${esc(k)}">${esc(k)}</button>`).join('');
+$('presets').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.p;loadText(PRESETS[k]??stress(),DEFAULT_Q[k])});
+$('apply').addEventListener('click',()=>loadText($('net').value));
+$('q').addEventListener('submit',e=>{e.preventDefault();run()});
+$('src').addEventListener('change',run);$('dst').addEventListener('change',run);
+$('swap').addEventListener('click',()=>{const a=$('src').value;$('src').value=$('dst').value;$('dst').value=a;run()});
+$('chips').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;const n=routes[+b.dataset.r].name;closed.has(n)?closed.delete(n):closed.add(n);run()});
+loadText(PRESETS['Demo city'],DEFAULT_Q['Demo city']);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# Demo city — "unseen network"
+Red:    Airport, Hebbal, Mekhri, Majestic, Market
+Blue:   Market, Lalbagh, Jayanagar, BTM, Silkboard
+Green:  Majestic, Indiranagar, Marathahalli, Whitefield
+Orange: Hebbal, Manyata, KRPuram, Whitefield
+Purple: Silkboard, Bellandur, Marathahalli, Whitefield
+Express: Airport, Hebbal, Silkboard
